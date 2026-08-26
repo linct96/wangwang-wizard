@@ -280,33 +280,10 @@ input:focus, select:focus {
   cursor: wait;
 }
 
-.account-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--btn-secondary-bg);
-  border: 1px solid var(--card-border);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.account-label {
-  color: var(--text-sub);
-  white-space: nowrap;
-  font-size: 12.5px;
-}
-
-.account-select {
-  flex: 1;
-  height: 28px;
-  padding: 0 8px;
-  background: transparent;
-  border: none;
-  color: var(--primary);
-  font-weight: 600;
-  font-size: 13px;
-  outline: none;
+input[readonly] {
+  cursor: default;
+  background: var(--input-bg);
+  opacity: 0.95;
 }
 
 
@@ -324,16 +301,6 @@ input:focus, select:focus {
   white-space: pre-wrap;
   word-break: break-all;
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-}
-
-/* Error */
-.error-msg {
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  background: var(--danger-bg);
-  border: 1px solid var(--danger-border);
-  color: var(--danger-text);
 }
 
 /* Footer */

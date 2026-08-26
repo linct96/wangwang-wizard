@@ -7,11 +7,12 @@ const eyeIcon = $('eye-icon')
 const eyeOffIcon = $('eye-off-icon')
 const accountsBtn = $('accounts')
 const resourcePanel = $('resource-panel')
-const accountSelect = $('account')
+const accountNameInput = $('account-name')
 const nameInput = $('name')
 const provisionBtn = $('provision')
 const outputEl = $('output')
-const errorEl = $('error')
+
+let selectedAccountId = ''
 
 function sanitizeName(raw) {
   return raw.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'wangwang'
@@ -31,14 +32,7 @@ function log(message) {
 
 function showError(err) {
   const msg = err instanceof Error ? err.message : String(err)
-  errorEl.textContent = msg
-  errorEl.classList.remove('hidden')
   log(`✗ 错误: ${msg}`)
-}
-
-function clearError() {
-  errorEl.classList.add('hidden')
-  errorEl.textContent = ''
 }
 
 function setBusy(btn, isBusy, text) {
@@ -70,7 +64,6 @@ accountsBtn.dataset.label = '开始'
 provisionBtn.dataset.label = '一键部署'
 
 accountsBtn.addEventListener('click', async () => {
-  clearError()
   const token = tokenInput.value.trim()
   if (!token) return showError('请先输入有效的 Cloudflare API Token')
 
@@ -81,14 +74,8 @@ accountsBtn.addEventListener('click', async () => {
     const accounts = await cfRequest('/accounts?per_page=50')
     if (!accounts.length) throw new Error('当前 Token 未关联任何 Cloudflare 账户')
 
-    accountSelect.replaceChildren(
-      ...accounts.map((item) => {
-        const opt = document.createElement('option')
-        opt.value = item.id
-        opt.textContent = item.name
-        return opt
-      })
-    )
+    selectedAccountId = accounts[0].id
+    accountNameInput.value = accounts[0].name
 
     log(`✓ 验证成功，当前账户: ${accounts[0].name}`)
     resourcePanel.classList.remove('hidden')
@@ -100,11 +87,10 @@ accountsBtn.addEventListener('click', async () => {
 })
 
 provisionBtn.addEventListener('click', async () => {
-  clearError()
-  const accountId = accountSelect.value
+  const accountId = selectedAccountId
   const name = sanitizeName(nameInput.value)
 
-  if (!accountId) return showError('请选择有效的账户')
+  if (!accountId) return showError('未获取到有效的账户信息')
 
   setBusy(provisionBtn, true, '正在部署...')
   log(`\n● 开始检查并部署 [${name}] 所需资源...`)
@@ -172,16 +158,7 @@ provisionBtn.addEventListener('click', async () => {
       log(`✓ 消息队列创建成功: ${queue.queue_name || targetQueueName}`)
     }
 
-    const configObj = {
-      d1_databases: [{ binding: 'DB', database_name: targetDbName, database_id: dbUuid }],
-      kv_namespaces: [{ binding: 'CONFIG_CACHE', id: kvId }],
-      queues: {
-        producers: [{ binding: 'JOBS', queue: targetQueueName }],
-        consumers: [{ queue: targetQueueName }],
-      },
-    }
-
-    log(`\n🎉 全部资源已就绪！生成配置如下：\n${JSON.stringify(configObj, null, 2)}`)
+    log('\n🎉 全部资源部署完成！')
   } catch (err) {
     showError(err)
   } finally {
