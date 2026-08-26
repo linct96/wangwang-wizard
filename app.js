@@ -1,4 +1,4 @@
-const API = 'https://api.cloudflare.com/client/v4'
+const API = '/proxy'
 const $ = (id) => document.getElementById(id)
 
 const tokenInput = $('token')
