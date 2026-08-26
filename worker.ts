@@ -7,6 +7,11 @@ async function api(path: string, token: string, init: RequestInit = {}) {
   if (!r.ok || !d.success) throw new Error(d.errors?.[0]?.message || `Cloudflare API ${r.status}`)
   return d.result
 }
+async function untarGzip(data: ArrayBuffer) {
+  const bytes = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()), files: Record<string, Uint8Array> = {}
+  for (let p = 0; p + 512 <= bytes.length;) { const size = parseInt(new TextDecoder().decode(bytes.slice(p + 124, p + 136)).replace(/\0/g, '').trim() || '0', 8); const name = new TextDecoder().decode(bytes.slice(p, p + 100)).replace(/\0.*$/, ''); if (!name) break; files[name.replace(/^wangwang-v[^/]+\//, '')] = bytes.slice(p + 512, p + 512 + size); p += 512 + Math.ceil(size / 512) * 512 }
+  return files
+}
 async function deploy(request: Request, env: Env) {
   const form = await request.formData(), token = String(form.get('token') || '').trim()
   const name = (String(form.get('workerName') || 'wangwang').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'wangwang')
@@ -19,7 +24,9 @@ async function deploy(request: Request, env: Env) {
       if (!account) throw new Error('Token 未关联 Cloudflare 账户')
       const release = await (await fetch(env.WANGWANG_RELEASE_API || RELEASE, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'wangwang-wizard' } })).json() as any
       const get = (n: string) => release.assets?.find((x: any) => x.name === n)?.browser_download_url
-      const [worker, assets, manifest] = await Promise.all([fetch(get('worker.js')).then(r => r.text()), fetch(get('assets.json')).then(r => r.json()), fetch(get('manifest.json')).then(r => r.json())])
+      const files = await untarGzip(await (await fetch(get(`wangwang-deploy-v${String(release.tag_name || '').replace(/^v/, '')}.tar.gz`))).arrayBuffer())
+      const decode = (n: string) => new TextDecoder().decode(files[n])
+      const worker = decode('worker.js'), assets = JSON.parse(decode('assets.json')), manifest = JSON.parse(decode('manifest.json'))
       if (!manifest || !worker) throw new Error('Wangwang Release 缺少部署文件')
       const dbs = await api(`/accounts/${account.id}/d1/database?per_page=100`, token), db = dbs.find((x: any) => x.name === `${name}-db`) || await api(`/accounts/${account.id}/d1/database`, token, { method: 'POST', body: JSON.stringify({ name: `${name}-db` }) })
       const kvs = await api(`/accounts/${account.id}/storage/kv/namespaces?per_page=100`, token), kv = kvs.find((x: any) => x.title === `${name}-config-cache`) || await api(`/accounts/${account.id}/storage/kv/namespaces`, token, { method: 'POST', body: JSON.stringify({ title: `${name}-config-cache` }) })
