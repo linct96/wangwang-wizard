@@ -95,13 +95,18 @@ async function deploy(request: Request, env: Env) {
       }
       const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'CONFIG_CACHE', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
       const upload = new FormData(); upload.append('metadata', JSON.stringify(metadata)); upload.append('worker.js', new Blob([worker], { type: 'application/javascript+module' }), 'worker.js'); await api(`/accounts/${account.id}/workers/scripts/${name}`, token, { method: 'PUT', body: upload })
-      let url = ''
+      let url = '', urlMessage = ''
       try {
+        const state = await api(`/accounts/${account.id}/workers/scripts/${name}/subdomain`, token, { method: 'POST', body: JSON.stringify({ enabled: true }) })
+        if (!state?.enabled) throw new Error('Cloudflare 未确认 workers.dev 已开启')
         const subdomain = (await api(`/accounts/${account.id}/workers/subdomain`, token))?.subdomain
         if (subdomain) url = `https://${name}.${subdomain}.workers.dev`
-      } catch (_) {}
+        else urlMessage = 'Worker 已部署，但当前账户未返回 workers.dev 子域名'
+      } catch (e) {
+        urlMessage = `Worker 已部署，但 workers.dev 自动开启失败：${e instanceof Error ? e.message : String(e)}`
+      }
       emit('success', 'Worker 上传完成')
-      emit('complete', JSON.stringify({ url, message: url ? '' : 'Worker 已部署，但当前账户未返回 workers.dev 子域名' }))
+      emit('complete', JSON.stringify({ url, message: urlMessage }))
     } catch (e) { emit('error', e instanceof Error ? e.message : String(e)) } c.close()
   } }), { headers: { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' } })
 }
