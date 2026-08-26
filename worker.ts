@@ -42,4 +42,54 @@ async function deploy(request: Request, env: Env) {
     } catch (e) { emit('error', e instanceof Error ? e.message : String(e)) } c.close()
   } }), { headers: { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' } })
 }
-export default { async fetch(request: Request, env: Env) { const u = new URL(request.url); if (u.pathname === '/api/deploy' && request.method === 'POST') return deploy(request, env); return env.ASSETS.fetch(request) } }
+export default {
+  async fetch(request: Request, env: Env) {
+    const u = new URL(request.url)
+
+    // 1. One-click deploy endpoint
+    if (u.pathname === '/api/deploy' && request.method === 'POST') {
+      return deploy(request, env)
+    }
+
+    // 2. Proxy Cloudflare API requests for frontend
+    if (u.pathname.startsWith('/cfproxy/')) {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'Access-Control-Max-Age': '86400',
+          },
+        })
+      }
+
+      const targetPath = u.pathname.replace(/^\/cfproxy/, '')
+      const targetUrl = `${CF}${targetPath}${u.search}`
+
+      const headers = new Headers(request.headers)
+      headers.set('Host', 'api.cloudflare.com')
+
+      const res = await fetch(targetUrl, {
+        method: request.method,
+        headers,
+        body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
+      })
+
+      const resHeaders = new Headers(res.headers)
+      resHeaders.set('Access-Control-Allow-Origin', '*')
+      resHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
+      resHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+      return new Response(res.body, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: resHeaders,
+      })
+    }
+
+    // 3. Static assets
+    return env.ASSETS.fetch(request)
+  },
+}
+

@@ -1,4 +1,4 @@
-const API = '/proxy'
+const API = '/cfproxy'
 const $ = (id) => document.getElementById(id)
 
 const tokenInput = $('token')
@@ -53,12 +53,20 @@ async function cfRequest(path, init = {}) {
     },
   })
 
-  const data = await response.json()
+  const rawText = await response.text()
+  let data
+  try {
+    data = JSON.parse(rawText)
+  } catch (_) {
+    throw new Error(`服务响应异常 (HTTP ${response.status})`)
+  }
+
   if (!response.ok || !data.success) {
     throw new Error(data.errors?.[0]?.message || `HTTP ${response.status}`)
   }
   return data.result
 }
+
 
 accountsBtn.dataset.label = '开始'
 provisionBtn.dataset.label = '一键部署'
