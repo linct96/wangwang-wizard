@@ -120,6 +120,7 @@ provisionBtn.addEventListener('click', async () => {
           try {
             const payload = typeof item.message === 'string' ? JSON.parse(item.message) : item.message
             if (payload.url) log(`🎉 部署成功！访问地址: ${payload.url}`)
+            else if (payload.message) log(`✓ ${payload.message}`)
           } catch (_) {
             log(`🎉 部署完成: ${item.message}`)
           }
@@ -193,6 +194,5 @@ window.addEventListener('DOMContentLoaded', () => {
     accountsBtn.click()
   }
 })
-
 
 
