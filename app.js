@@ -10,14 +10,8 @@ const resourcePanel = $('resource-panel')
 const accountSelect = $('account')
 const nameInput = $('name')
 const provisionBtn = $('provision')
-const resultPanel = $('result')
 const outputEl = $('output')
 const errorEl = $('error')
-const copyBtn = $('copy')
-const downloadBtn = $('download')
-const genPrivateLinkBtn = $('gen-private-link')
-
-let generatedConfig = ''
 
 function sanitizeName(raw) {
   return raw.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'wangwang'
@@ -72,16 +66,16 @@ async function cfRequest(path, init = {}) {
   return data.result
 }
 
-accountsBtn.dataset.label = '验证 Token 并查询账户'
-provisionBtn.dataset.label = '一键创建 D1 / KV / Queue'
+accountsBtn.dataset.label = '开始'
+provisionBtn.dataset.label = '一键部署'
 
 accountsBtn.addEventListener('click', async () => {
   clearError()
   const token = tokenInput.value.trim()
   if (!token) return showError('请先输入有效的 Cloudflare API Token')
 
-  setBusy(accountsBtn, true, '正在查询...')
-  outputEl.textContent = '●●● 正在连接 Cloudflare API...'
+  setBusy(accountsBtn, true, '正在验证...')
+  outputEl.textContent = '●●● 正在连接 Cloudflare 验证 Token...'
 
   try {
     const accounts = await cfRequest('/accounts?per_page=50')
@@ -91,12 +85,12 @@ accountsBtn.addEventListener('click', async () => {
       ...accounts.map((item) => {
         const opt = document.createElement('option')
         opt.value = item.id
-        opt.textContent = `${item.name} (${item.id})`
+        opt.textContent = item.name
         return opt
       })
     )
 
-    log(`✓ 验证成功，找到 ${accounts.length} 个账户: ${accounts[0].name}`)
+    log(`✓ 验证成功，当前账户: ${accounts[0].name}`)
     resourcePanel.classList.remove('hidden')
   } catch (err) {
     showError(err)
@@ -112,43 +106,82 @@ provisionBtn.addEventListener('click', async () => {
 
   if (!accountId) return showError('请选择有效的账户')
 
-  setBusy(provisionBtn, true, '正在创建资源...')
-  log(`● 正在为 [${name}] 创建 Cloudflare 资源...`)
+  setBusy(provisionBtn, true, '正在部署...')
+  log(`\n● 开始检查并部署 [${name}] 所需资源...`)
 
   try {
-    // 1. D1
-    const db = await cfRequest(`/accounts/${accountId}/d1/database`, {
-      method: 'POST',
-      body: JSON.stringify({ name: `${name}-db` }),
-    })
-    log(`✓ D1 数据库已创建: ${db.name}`)
+    // 1. D1 Database (Check -> Reuse or Create)
+    const targetDbName = `${name}-db`
+    let dbUuid = ''
+    try {
+      const d1List = await cfRequest(`/accounts/${accountId}/d1/database?per_page=100`)
+      const existingDb = d1List?.find((item) => item.name === targetDbName)
+      if (existingDb) {
+        dbUuid = existingDb.uuid
+        log(`ℹ D1 数据库已存在: ${targetDbName} (${dbUuid})，已自动复用`)
+      }
+    } catch (_) {}
 
-    // 2. KV
-    const kv = await cfRequest(`/accounts/${accountId}/storage/kv/namespaces`, {
-      method: 'POST',
-      body: JSON.stringify({ title: `${name}-config-cache` }),
-    })
-    log(`✓ KV 命名空间已创建: ${name}-config-cache`)
+    if (!dbUuid) {
+      const db = await cfRequest(`/accounts/${accountId}/d1/database`, {
+        method: 'POST',
+        body: JSON.stringify({ name: targetDbName }),
+      })
+      dbUuid = db.uuid
+      log(`✓ D1 数据库创建成功: ${db.name} (${dbUuid})`)
+    }
 
-    // 3. Queues
-    const queue = await cfRequest(`/accounts/${accountId}/queues`, {
-      method: 'POST',
-      body: JSON.stringify({ queue_name: `${name}-jobs` }),
-    })
-    log(`✓ 消息队列已创建: ${queue.queue_name || `${name}-jobs`}`)
+    // 2. KV Namespace (Check -> Reuse or Create)
+    const targetKvTitle = `${name}-config-cache`
+    let kvId = ''
+    try {
+      const kvList = await cfRequest(`/accounts/${accountId}/storage/kv/namespaces?per_page=100`)
+      const existingKv = kvList?.find((item) => item.title === targetKvTitle)
+      if (existingKv) {
+        kvId = existingKv.id
+        log(`ℹ KV 命名空间已存在: ${targetKvTitle} (${kvId})，已自动复用`)
+      }
+    } catch (_) {}
+
+    if (!kvId) {
+      const kv = await cfRequest(`/accounts/${accountId}/storage/kv/namespaces`, {
+        method: 'POST',
+        body: JSON.stringify({ title: targetKvTitle }),
+      })
+      kvId = kv.id
+      log(`✓ KV 命名空间创建成功: ${targetKvTitle} (${kvId})`)
+    }
+
+    // 3. Queues (Check -> Reuse or Create)
+    const targetQueueName = `${name}-jobs`
+    let queueFound = false
+    try {
+      const queueList = await cfRequest(`/accounts/${accountId}/queues`)
+      const existingQueue = queueList?.find((item) => item.queue_name === targetQueueName)
+      if (existingQueue) {
+        queueFound = true
+        log(`ℹ 消息队列已存在: ${targetQueueName}，已自动复用`)
+      }
+    } catch (_) {}
+
+    if (!queueFound) {
+      const queue = await cfRequest(`/accounts/${accountId}/queues`, {
+        method: 'POST',
+        body: JSON.stringify({ queue_name: targetQueueName }),
+      })
+      log(`✓ 消息队列创建成功: ${queue.queue_name || targetQueueName}`)
+    }
 
     const configObj = {
-      d1_databases: [{ binding: 'DB', database_name: db.name, database_id: db.uuid }],
-      kv_namespaces: [{ binding: 'CONFIG_CACHE', id: kv.id }],
+      d1_databases: [{ binding: 'DB', database_name: targetDbName, database_id: dbUuid }],
+      kv_namespaces: [{ binding: 'CONFIG_CACHE', id: kvId }],
       queues: {
-        producers: [{ binding: 'JOBS', queue: queue.queue_name || `${name}-jobs` }],
-        consumers: [{ queue: queue.queue_name || `${name}-jobs` }],
+        producers: [{ binding: 'JOBS', queue: targetQueueName }],
+        consumers: [{ queue: targetQueueName }],
       },
     }
 
-    generatedConfig = JSON.stringify(configObj, null, 2)
-    log(`\n🎉 资源创建完成！配置如下：\n${generatedConfig}`)
-    resultPanel.classList.remove('hidden')
+    log(`\n🎉 全部资源已就绪！生成配置如下：\n${JSON.stringify(configObj, null, 2)}`)
   } catch (err) {
     showError(err)
   } finally {
@@ -156,33 +189,6 @@ provisionBtn.addEventListener('click', async () => {
   }
 })
 
-copyBtn.addEventListener('click', async () => {
-  if (!generatedConfig) return
-  await navigator.clipboard.writeText(generatedConfig)
-  copyBtn.textContent = '已复制'
-  setTimeout(() => (copyBtn.textContent = '复制配置'), 2000)
-})
-
-downloadBtn.addEventListener('click', () => {
-  if (!generatedConfig) return
-  const blob = new Blob([generatedConfig], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'wrangler.resources.json'
-  a.click()
-  URL.revokeObjectURL(url)
-})
-
-genPrivateLinkBtn.addEventListener('click', async () => {
-  const token = tokenInput.value.trim()
-  if (!token) return showError('请先输入 Token')
-  const url = new URL(window.location.href)
-  url.hash = `token=${encodeURIComponent(token)}`
-  await navigator.clipboard.writeText(url.href)
-  genPrivateLinkBtn.textContent = '链接已复制'
-  setTimeout(() => (genPrivateLinkBtn.textContent = '复制私有链接'), 2000)
-})
 
 // Theme Management
 const toggleThemeBtn = $('toggle-theme')
@@ -240,6 +246,7 @@ window.addEventListener('DOMContentLoaded', () => {
     accountsBtn.click()
   }
 })
+
 
 
 

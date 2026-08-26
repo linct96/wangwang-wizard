@@ -280,17 +280,35 @@ input:focus, select:focus {
   cursor: wait;
 }
 
-.btn-group {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+.account-box {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  background: var(--btn-secondary-bg);
+  border: 1px solid var(--card-border);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
 }
 
-@media (max-width: 420px) {
-  .btn-group {
-    grid-template-columns: 1fr;
-  }
+.account-label {
+  color: var(--text-sub);
+  white-space: nowrap;
+  font-size: 12.5px;
 }
+
+.account-select {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 13px;
+  outline: none;
+}
+
 
 /* Terminal */
 .terminal {

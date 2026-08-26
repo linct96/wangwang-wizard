@@ -36,8 +36,8 @@
       <ol class="steps">
         <li>注册并验证 <a href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener noreferrer">Cloudflare 账户</a>。</li>
         <li><a id="tokenTemplate" href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer">创建 API 令牌</a>（继续以显示摘要 ➔ 创建令牌并复制）。</li>
-        <li>粘贴 Token，选择账户并一键创建资源。</li>
-        <li>复制生成的配置填入项目完成部署。</li>
+        <li>粘贴 Token 并点击「开始」。</li>
+        <li>确认名称后点击「一键部署」。</li>
       </ol>
 
       <form id="wizard-form" class="form" onsubmit="return false;">
@@ -52,14 +52,12 @@
           </button>
         </div>
 
-        <button id="accounts" type="button" class="btn primary">验证 Token 并查询账户</button>
+        <button id="accounts" type="button" class="btn primary">开始</button>
 
         <div id="resource-panel" class="sub-form hidden">
-          <div class="input-group">
-            <span class="input-icon">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            </span>
-            <select id="account"></select>
+          <div class="account-box">
+            <span class="account-label">当前账户：</span>
+            <select id="account" class="account-select"></select>
           </div>
 
           <div class="input-group">
@@ -69,15 +67,7 @@
             <input id="name" value="wangwang" maxlength="28" placeholder="项目名称前缀 (默认: wangwang)" />
           </div>
 
-          <button id="provision" type="button" class="btn primary">一键创建 D1 / KV / Queue</button>
-        </div>
-
-        <div id="result" class="sub-form hidden">
-          <div class="btn-group">
-            <button id="copy" type="button" class="btn primary">复制配置</button>
-            <button id="download" type="button" class="btn secondary">下载 JSON</button>
-            <button id="gen-private-link" type="button" class="btn secondary">复制私有链接</button>
-          </div>
+          <button id="provision" type="button" class="btn primary">一键部署</button>
         </div>
 
         <div id="error" class="error-msg hidden"></div>
@@ -91,5 +81,6 @@
     <script type="module" src="./app.js"></script>
   </body>
 </html>
+
 
 
