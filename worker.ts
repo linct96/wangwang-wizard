@@ -2,7 +2,11 @@ const CF = 'https://api.cloudflare.com/client/v4'
 const RELEASE = 'https://api.github.com/repos/linct96/wangwang/releases/latest'
 type Env = { ASSETS: Fetcher; WANGWANG_RELEASE_API?: string }
 async function api(path: string, token: string, init: RequestInit = {}) {
-  const r = await fetch(`${CF}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers } })
+  const headers = new Headers(init.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+  if (init.body instanceof FormData) headers.delete('Content-Type')
+  else if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  const r = await fetch(`${CF}${path}`, { ...init, headers })
   const d = await r.json() as any
   if (!r.ok || !d.success) throw new Error(d.errors?.[0]?.message || `Cloudflare API ${r.status}`)
   return d.result
@@ -78,8 +82,18 @@ async function deploy(request: Request, env: Env) {
       const entries = Object.entries(assets as Record<string, string>), m: Record<string, { hash: string; size: number }> = {}
       for (const [p, b64] of entries) { const bytes = Uint8Array.from(atob(b64), x => x.charCodeAt(0)); const hash = [...new Uint8Array(await crypto.subtle.digest('MD5', bytes))].map(x => x.toString(16).padStart(2, '0')).join(''); m[p] = { hash, size: bytes.length } }
       const session = await api(`/accounts/${account.id}/workers/scripts/${name}/assets-upload-session`, token, { method: 'POST', body: JSON.stringify({ manifest: m }) })
-      for (const [p, b64] of entries) { const body = new FormData(); body.append(m[p].hash, b64); await api(`/accounts/${account.id}/workers/assets/upload?base64=true`, session.jwt, { method: 'POST', body }) }
-      const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: session.jwt }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'CONFIG_CACHE', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
+      let assetsJwt = session.jwt
+      const assetsByHash = new Map(entries.map(([p, b64]) => [m[p].hash, b64]))
+      for (const bucket of session.buckets || []) {
+        const body = new FormData()
+        for (const hash of bucket) {
+          const b64 = assetsByHash.get(hash)
+          if (b64) body.append(hash, b64)
+        }
+        const uploaded = await api(`/accounts/${account.id}/workers/assets/upload?base64=true`, assetsJwt, { method: 'POST', body })
+        assetsJwt = uploaded?.jwt || assetsJwt
+      }
+      const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'CONFIG_CACHE', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
       const upload = new FormData(); upload.append('metadata', JSON.stringify(metadata)); upload.append('worker.js', new Blob([worker], { type: 'application/javascript+module' }), 'worker.js'); await api(`/accounts/${account.id}/workers/scripts/${name}`, token, { method: 'PUT', body: upload })
       emit('success', 'Worker 上传完成'); emit('complete', JSON.stringify({ url: `https://${name}.${account.name}.workers.dev` }))
     } catch (e) { emit('error', e instanceof Error ? e.message : String(e)) } c.close()
@@ -135,4 +149,3 @@ export default {
     return env.ASSETS.fetch(request)
   },
 }
-
