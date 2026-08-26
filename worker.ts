@@ -23,25 +23,53 @@ async function deploy(request: Request, env: Env) {
       const account = (await api('/accounts?per_page=1', token))?.[0]
       if (!account) throw new Error('Token 未关联 Cloudflare 账户')
       emit('info', '正在获取 Wangwang 最新版本发布包...')
-      const releaseRes = await fetch(env.WANGWANG_RELEASE_API || RELEASE, {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'wangwang-wizard' },
-      })
-      if (!releaseRes.ok) {
-        throw new Error(`无法获取 GitHub 发布包 (HTTP ${releaseRes.status})，请确认 linct96/wangwang 仓库已发布 Release 且为公开仓库`)
-      }
-      const release = await releaseRes.json() as any
-      const targetArchiveName = `wangwang-deploy-v${String(release.tag_name || '').replace(/^v/, '')}.tar.gz`
-      const downloadUrl = release.assets?.find((x: any) => x.name === targetArchiveName || (x.name.startsWith('wangwang-deploy-') && x.name.endsWith('.tar.gz')) )?.browser_download_url
+      let downloadUrl = ''
+      let tag = ''
+
+      // 1. 优先通过 GitHub Releases 302 重定向解析最新 tag（完全不消耗 GitHub API 速率配额，避免 429）
+      try {
+        const redirectRes = await fetch('https://github.com/linct96/wangwang/releases/latest', {
+          method: 'GET',
+          redirect: 'manual',
+          headers: { 'User-Agent': 'wangwang-wizard' },
+        })
+        const loc = redirectRes.headers.get('location') || ''
+        if (loc) {
+          tag = loc.split('/').pop()?.trim() || ''
+          if (tag) {
+            downloadUrl = `https://github.com/linct96/wangwang/releases/download/${tag}/wangwang-deploy-${tag}.tar.gz`
+          }
+        }
+      } catch (_) {}
+
+      // 2. 备用：若重定向未获取到，则通过 API 获取
       if (!downloadUrl) {
-        throw new Error(`Release (${release.tag_name || 'latest'}) 中未找到部署包: ${targetArchiveName}`)
+        const releaseRes = await fetch(env.WANGWANG_RELEASE_API || RELEASE, {
+          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'wangwang-wizard' },
+        })
+        if (!releaseRes.ok) {
+          throw new Error(`无法获取 GitHub 发布包 (HTTP ${releaseRes.status})，请确认 linct96/wangwang 仓库已发布 Release`)
+        }
+        const release = await releaseRes.json() as any
+        tag = release.tag_name || 'latest'
+        const targetArchiveName = `wangwang-deploy-v${String(release.tag_name || '').replace(/^v/, '')}.tar.gz`
+        downloadUrl = release.assets?.find((x: any) => x.name === targetArchiveName || (x.name.startsWith('wangwang-deploy-') && x.name.endsWith('.tar.gz')))?.browser_download_url || ''
       }
 
-      const archiveRes = await fetch(downloadUrl)
+      if (!downloadUrl) {
+        throw new Error(`未找到匹配的部署包 wangwang-deploy-*.tar.gz`)
+      }
+
+      emit('info', `正在下载部署包 (${tag || 'latest'})...`)
+      const archiveRes = await fetch(downloadUrl, {
+        headers: { 'User-Agent': 'wangwang-wizard' },
+      })
       if (!archiveRes.ok) throw new Error(`下载部署包失败 (HTTP ${archiveRes.status})`)
       const files = await untarGzip(await archiveRes.arrayBuffer())
       const decode = (n: string) => new TextDecoder().decode(files[n])
       const worker = decode('worker.js'), assets = JSON.parse(decode('assets.json')), manifest = JSON.parse(decode('manifest.json'))
       if (!manifest || !worker) throw new Error('Wangwang Release 缺少部署文件')
+
 
       const dbs = await api(`/accounts/${account.id}/d1/database?per_page=100`, token), db = dbs.find((x: any) => x.name === `${name}-db`) || await api(`/accounts/${account.id}/d1/database`, token, { method: 'POST', body: JSON.stringify({ name: `${name}-db` }) })
       const kvs = await api(`/accounts/${account.id}/storage/kv/namespaces?per_page=100`, token), kv = kvs.find((x: any) => x.title === `${name}-config-cache`) || await api(`/accounts/${account.id}/storage/kv/namespaces`, token, { method: 'POST', body: JSON.stringify({ title: `${name}-config-cache` }) })
