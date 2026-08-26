@@ -96,75 +96,37 @@ provisionBtn.addEventListener('click', async () => {
   log(`\n● 开始检查并部署 [${name}] 所需资源...`)
 
   try {
-    // 1. D1 Database (Check -> Reuse or Create)
-    const targetDbName = `${name}-db`
-    let dbUuid = ''
-    try {
-      const d1List = await cfRequest(`/accounts/${accountId}/d1/database?per_page=100`)
-      const existingDb = d1List?.find((item) => item.name === targetDbName)
-      if (existingDb) {
-        dbUuid = existingDb.uuid
-        log(`ℹ D1 数据库已存在: ${targetDbName} (${dbUuid})，已自动复用`)
+    const response = await fetch('/api/deploy', { method: 'POST', body: (() => { const form = new FormData(); form.set('token', tokenInput.value.trim()); form.set('workerName', name); return form })() })
+    if (!response.ok || !response.body) throw new Error(`部署接口返回 HTTP ${response.status}`)
+    const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const item = JSON.parse(line)
+        if (item.type === 'complete') {
+          try {
+            const payload = typeof item.message === 'string' ? JSON.parse(item.message) : item.message
+            if (payload.url) log(`🎉 部署成功！访问地址: ${payload.url}`)
+          } catch (_) {
+            log(`🎉 部署完成: ${item.message}`)
+          }
+        } else {
+          log(`${item.type === 'error' ? '✗' : item.type === 'success' ? '✓' : '●'} ${item.message}`)
+        }
       }
-    } catch (_) {}
-
-    if (!dbUuid) {
-      const db = await cfRequest(`/accounts/${accountId}/d1/database`, {
-        method: 'POST',
-        body: JSON.stringify({ name: targetDbName }),
-      })
-      dbUuid = db.uuid
-      log(`✓ D1 数据库创建成功: ${db.name} (${dbUuid})`)
     }
-
-    // 2. KV Namespace (Check -> Reuse or Create)
-    const targetKvTitle = `${name}-config-cache`
-    let kvId = ''
-    try {
-      const kvList = await cfRequest(`/accounts/${accountId}/storage/kv/namespaces?per_page=100`)
-      const existingKv = kvList?.find((item) => item.title === targetKvTitle)
-      if (existingKv) {
-        kvId = existingKv.id
-        log(`ℹ KV 命名空间已存在: ${targetKvTitle} (${kvId})，已自动复用`)
-      }
-    } catch (_) {}
-
-    if (!kvId) {
-      const kv = await cfRequest(`/accounts/${accountId}/storage/kv/namespaces`, {
-        method: 'POST',
-        body: JSON.stringify({ title: targetKvTitle }),
-      })
-      kvId = kv.id
-      log(`✓ KV 命名空间创建成功: ${targetKvTitle} (${kvId})`)
-    }
-
-    // 3. Queues (Check -> Reuse or Create)
-    const targetQueueName = `${name}-jobs`
-    let queueFound = false
-    try {
-      const queueList = await cfRequest(`/accounts/${accountId}/queues`)
-      const existingQueue = queueList?.find((item) => item.queue_name === targetQueueName)
-      if (existingQueue) {
-        queueFound = true
-        log(`ℹ 消息队列已存在: ${targetQueueName}，已自动复用`)
-      }
-    } catch (_) {}
-
-    if (!queueFound) {
-      const queue = await cfRequest(`/accounts/${accountId}/queues`, {
-        method: 'POST',
-        body: JSON.stringify({ queue_name: targetQueueName }),
-      })
-      log(`✓ 消息队列创建成功: ${queue.queue_name || targetQueueName}`)
-    }
-
-    log('\n🎉 全部资源部署完成！')
   } catch (err) {
     showError(err)
   } finally {
     setBusy(provisionBtn, false)
   }
 })
+
 
 
 // Theme Management
@@ -223,7 +185,6 @@ window.addEventListener('DOMContentLoaded', () => {
     accountsBtn.click()
   }
 })
-
 
 
 
