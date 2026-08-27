@@ -12,7 +12,7 @@
 - 下载并校验 Wangwang 版本化部署包
 - 执行 D1 migration
 - 上传 Worker 与静态资源
-- 配置 D1、KV、Queue bindings 和 Cron
+- 配置 D1、KV、Queue bindings
 - 写入环境变量与 `SUBSCRIPTION_TOKEN_SECRET`
 - 使用 `workers.dev` 地址完成健康检查
 - 流式显示部署阶段、错误和最终地址
@@ -44,7 +44,7 @@ Token 只在当前请求期间使用，不写入 KV、D1、URL、日志或分析
 
 ## 验收标准
 
-- D1、KV、Queue producer/consumer、Cron 均已配置
+- D1、KV、Queue producer/consumer 均已配置
 - migration 执行完成且可重复执行
 - `/healthz` 返回 `200`
 - `/admin` 可返回管理页面
