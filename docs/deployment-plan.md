@@ -36,7 +36,7 @@ wangwang-deploy-vX.Y.Z.tar.gz.sha256
 validate -> artifact -> d1 -> kv -> queue -> migration -> worker -> secret -> healthcheck -> complete
 ```
 
-默认复用同名资源；勾选“强制重新创建资源”时删除同名 D1、KV、Queue 后重新创建，已有数据和队列消息不可恢复。migration 记录已执行项并保持幂等；失败时不自动删除资源，允许用户安全重试。已有 Secret 默认保留，避免订阅链接意外失效。
+默认复用同名资源；勾选“强制重新创建资源”时删除同名 Worker、D1、KV、Queue 后重新创建，已有数据、队列消息、Secret 和 Worker 部署记录不可恢复。migration 记录已执行项并保持幂等；失败时不自动删除资源，允许用户安全重试。未勾选强制重建时已有 Secret 默认保留，避免订阅链接意外失效。
 
 ## Token 安全
 
