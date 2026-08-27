@@ -19,6 +19,15 @@ async function listAll(path: string, token: string) {
     if (!data.result_info || page >= data.result_info.total_pages || !data.result.length) return result
   }
 }
+function assetContentType(path: string) {
+  if (path.endsWith('.js')) return 'text/javascript; charset=UTF-8'
+  if (path.endsWith('.css')) return 'text/css; charset=UTF-8'
+  if (path.endsWith('.html')) return 'text/html; charset=UTF-8'
+  if (path.endsWith('.svg')) return 'image/svg+xml'
+  if (path.endsWith('.json')) return 'application/json; charset=UTF-8'
+  if (path.endsWith('.ico')) return 'image/x-icon'
+  return 'application/octet-stream'
+}
 async function applyMigrations(accountId: string, databaseId: string, files: Record<string, Uint8Array>, manifest: any, token: string) {
   const dir = `${String(manifest.migrationsDir || 'migrations').replace(/\/+$/, '')}/`
   const migrations = Object.keys(files).filter((name) => name.startsWith(dir) && name.endsWith('.sql')).sort()
@@ -124,12 +133,12 @@ async function deploy(request: Request, env: Env) {
       for (const [p, b64] of entries) { const bytes = Uint8Array.from(atob(b64), x => x.charCodeAt(0)); const hash = [...new Uint8Array(await crypto.subtle.digest('MD5', bytes))].map(x => x.toString(16).padStart(2, '0')).join(''); m[p] = { hash, size: bytes.length } }
       const session = await api(`/accounts/${account.id}/workers/scripts/${name}/assets-upload-session`, token, { method: 'POST', body: JSON.stringify({ manifest: m }) })
       let assetsJwt = session.jwt
-      const assetsByHash = new Map(entries.map(([p, b64]) => [m[p].hash, b64]))
+      const assetsByHash = new Map(entries.map(([p, b64]) => [m[p].hash, { b64, type: assetContentType(p) }]))
       for (const bucket of session.buckets || []) {
         const body = new FormData()
         for (const hash of bucket) {
-          const b64 = assetsByHash.get(hash)
-          if (b64) body.append(hash, b64)
+          const asset = assetsByHash.get(hash)
+          if (asset) body.append(hash, new Blob([asset.b64], { type: asset.type }))
         }
         const uploaded = await api(`/accounts/${account.id}/workers/assets/upload?base64=true`, assetsJwt, { method: 'POST', body })
         assetsJwt = uploaded?.jwt || assetsJwt
