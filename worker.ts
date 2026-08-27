@@ -1,7 +1,7 @@
 const CF = 'https://api.cloudflare.com/client/v4'
 const RELEASE = 'https://api.github.com/repos/linct96/wangwang/releases/latest'
 type Env = { ASSETS: Fetcher; WANGWANG_RELEASE_API?: string }
-async function api(path: string, token: string, init: RequestInit = {}) {
+async function api(path: string, token: string, init: RequestInit = {}, envelope = false) {
   const headers = new Headers(init.headers)
   headers.set('Authorization', `Bearer ${token}`)
   if (init.body instanceof FormData) headers.delete('Content-Type')
@@ -9,7 +9,15 @@ async function api(path: string, token: string, init: RequestInit = {}) {
   const r = await fetch(`${CF}${path}`, { ...init, headers })
   const d = await r.json() as any
   if (!r.ok || !d.success) throw new Error(d.errors?.[0]?.message || `Cloudflare API ${r.status}`)
-  return d.result
+  return envelope ? d : d.result
+}
+async function listAll(path: string, token: string) {
+  const result: any[] = []
+  for (let page = 1; ; page += 1) {
+    const data = await api(`${path}&page=${page}`, token, {}, true)
+    result.push(...(data.result || []))
+    if (!data.result_info || page >= data.result_info.total_pages || !data.result.length) return result
+  }
 }
 async function applyMigrations(accountId: string, databaseId: string, files: Record<string, Uint8Array>, manifest: any, token: string) {
   const dir = `${String(manifest.migrationsDir || 'migrations').replace(/\/+$/, '')}/`
@@ -47,10 +55,10 @@ async function deploy(request: Request, env: Env) {
 
       // 1. 优先通过 GitHub Releases 302 重定向解析最新 tag（完全不消耗 GitHub API 速率配额，避免 429）
       try {
-        const redirectRes = await fetch('https://github.com/linct96/wangwang/releases/latest', {
+        const redirectRes = await fetch(`https://github.com/linct96/wangwang/releases/latest?_=${Date.now()}`, {
           method: 'GET',
           redirect: 'manual',
-          headers: { 'User-Agent': 'wangwang-wizard' },
+          headers: { 'User-Agent': 'wangwang-wizard', 'Cache-Control': 'no-cache' },
         })
         const loc = redirectRes.headers.get('location') || ''
         if (loc) {
@@ -64,7 +72,7 @@ async function deploy(request: Request, env: Env) {
       // 2. 备用：若重定向未获取到，则通过 API 获取
       if (!downloadUrl) {
         const releaseRes = await fetch(env.WANGWANG_RELEASE_API || RELEASE, {
-          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'wangwang-wizard' },
+          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'wangwang-wizard', 'Cache-Control': 'no-cache' },
         })
         if (!releaseRes.ok) {
           throw new Error(`无法获取 GitHub 发布包 (HTTP ${releaseRes.status})，请确认 linct96/wangwang 仓库已发布 Release`)
@@ -80,20 +88,24 @@ async function deploy(request: Request, env: Env) {
       }
 
       emit('info', `正在下载部署包 (${tag || 'latest'})...`)
-      const archiveRes = await fetch(downloadUrl, {
-        headers: { 'User-Agent': 'wangwang-wizard' },
+      const archiveRes = await fetch(`${downloadUrl}${downloadUrl.includes('?') ? '&' : '?'}_=${Date.now()}`, {
+        headers: { 'User-Agent': 'wangwang-wizard', 'Cache-Control': 'no-cache' },
       })
       if (!archiveRes.ok) throw new Error(`下载部署包失败 (HTTP ${archiveRes.status})`)
-      const files = await untarGzip(await archiveRes.arrayBuffer())
+      const archive = await archiveRes.arrayBuffer()
+      const expected = await (await fetch(`${downloadUrl}.sha256?_=${Date.now()}`, { headers: { 'User-Agent': 'wangwang-wizard', 'Cache-Control': 'no-cache' } })).text()
+      const actual = [...new Uint8Array(await crypto.subtle.digest('SHA-256', archive))].map((x) => x.toString(16).padStart(2, '0')).join('')
+      if (expected.trim().split(/\s+/)[0].toLowerCase() !== actual) throw new Error('部署包 SHA-256 校验失败')
+      const files = await untarGzip(archive)
       const decode = (n: string) => new TextDecoder().decode(files[n])
       const worker = decode('worker.js'), assets = JSON.parse(decode('assets.json')), manifest = JSON.parse(decode('manifest.json'))
       if (!manifest || !worker) throw new Error('Wangwang Release 缺少部署文件')
 
 
       const dbName = `${name}-db`, kvTitle = `${name}-KV`, queueName = `${name}-jobs`
-      const dbs = await api(`/accounts/${account.id}/d1/database?per_page=100`, token)
-      const kvs = await api(`/accounts/${account.id}/storage/kv/namespaces?per_page=100`, token)
-      const queues = await api(`/accounts/${account.id}/queues?per_page=100`, token)
+      const dbs = await listAll(`/accounts/${account.id}/d1/database?per_page=100`, token)
+      const kvs = await listAll(`/accounts/${account.id}/storage/kv/namespaces?per_page=100`, token)
+      const queues = await listAll(`/accounts/${account.id}/queues?per_page=100`, token)
       if (forceRecreate) {
         emit('info', '正在删除同名 Worker、D1、KV、Queue...')
         await api(`/accounts/${account.id}/workers/scripts/${encodeURIComponent(name)}`, token, { method: 'DELETE' })
@@ -122,7 +134,7 @@ async function deploy(request: Request, env: Env) {
         const uploaded = await api(`/accounts/${account.id}/workers/assets/upload?base64=true`, assetsJwt, { method: 'POST', body })
         assetsJwt = uploaded?.jwt || assetsJwt
       }
-      const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt, config: { not_found_handling: 'single-page-application' }, run_worker_first: true }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'KV', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
+      const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt, config: { not_found_handling: 'single-page-application' }, run_worker_first: true, serve_directly: false }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'KV', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
       const upload = new FormData(); upload.append('metadata', JSON.stringify(metadata)); upload.append('worker.js', new Blob([worker], { type: 'application/javascript+module' }), 'worker.js'); await api(`/accounts/${account.id}/workers/scripts/${name}`, token, { method: 'PUT', body: upload })
       let url = '', urlMessage = ''
       try {
