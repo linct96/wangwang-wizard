@@ -191,7 +191,7 @@ h1 {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  color: var(--danger-text);
+  color: var(--text-sub);
   font-size: 12px;
   cursor: pointer;
 }
@@ -201,7 +201,7 @@ h1 {
   width: 14px;
   height: 14px;
   margin-top: 2px;
-  accent-color: var(--danger-text);
+  accent-color: var(--text-sub);
 }
 
 .input-group {
