@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id)
 const tokenInput = $('token')
 const tokenGroup = $('token-group')
 const rememberTokenInput = $('remember-token')
+const rememberTokenOption = $('remember-token-option')
 const toggleTokenBtn = $('toggle-token')
 const eyeIcon = $('eye-icon')
 const eyeOffIcon = $('eye-off-icon')
@@ -92,6 +93,7 @@ accountsBtn.addEventListener('click', async () => {
 
     log(`✓ 验证成功，当前账户: ${accounts[0].name}`)
     tokenGroup.classList.add('hidden')
+    rememberTokenOption.classList.add('hidden')
     accountsBtn.classList.add('hidden')
     resourcePanel.classList.remove('hidden')
   } catch (err) {
