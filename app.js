@@ -2,6 +2,7 @@ const API = '/cfproxy'
 const $ = (id) => document.getElementById(id)
 
 const tokenInput = $('token')
+const tokenGroup = $('token-group')
 const toggleTokenBtn = $('toggle-token')
 const eyeIcon = $('eye-icon')
 const eyeOffIcon = $('eye-off-icon')
@@ -87,6 +88,8 @@ accountsBtn.addEventListener('click', async () => {
     accountNameInput.value = accounts[0].name
 
     log(`✓ 验证成功，当前账户: ${accounts[0].name}`)
+    tokenGroup.classList.add('hidden')
+    accountsBtn.classList.add('hidden')
     resourcePanel.classList.remove('hidden')
   } catch (err) {
     showError(err)
@@ -195,4 +198,3 @@ window.addEventListener('DOMContentLoaded', () => {
     accountsBtn.click()
   }
 })
-
