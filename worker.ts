@@ -125,7 +125,7 @@ async function deploy(request: Request, env: Env) {
       }
       const db = (!forceRecreate && dbs.find((x: any) => x.name === dbName)) || await api(`/accounts/${account.id}/d1/database`, token, { method: 'POST', body: JSON.stringify({ name: dbName }) })
       const kv = (!forceRecreate && kvs.find((x: any) => x.title === kvTitle)) || await api(`/accounts/${account.id}/storage/kv/namespaces`, token, { method: 'POST', body: JSON.stringify({ title: kvTitle }) })
-      if (forceRecreate || !(queues || []).find((x: any) => x.queue_name === queueName)) await api(`/accounts/${account.id}/queues`, token, { method: 'POST', body: JSON.stringify({ queue_name: queueName }) })
+      const queue = (!forceRecreate && queues.find((x: any) => x.queue_name === queueName)) || await api(`/accounts/${account.id}/queues`, token, { method: 'POST', body: JSON.stringify({ queue_name: queueName }) })
       emit('info', '正在应用 D1 数据库迁移...')
       await applyMigrations(account.id, db.uuid, files, manifest, token)
       emit('success', 'D1、KV、Queue 已准备')
@@ -145,6 +145,11 @@ async function deploy(request: Request, env: Env) {
       }
       const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt, config: { not_found_handling: 'single-page-application' }, run_worker_first: true, serve_directly: false }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'KV', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
       const upload = new FormData(); upload.append('metadata', JSON.stringify(metadata)); upload.append('worker.js', new Blob([worker], { type: 'application/javascript+module' }), 'worker.js'); await api(`/accounts/${account.id}/workers/scripts/${name}`, token, { method: 'PUT', body: upload })
+      const consumers = await api(`/accounts/${account.id}/queues/${encodeURIComponent(queue.queue_id)}/consumers`, token)
+      const consumer = consumers.find((x: any) => x.type === 'worker' && x.script_name === name)
+      const consumerBody = JSON.stringify({ script_name: name, type: 'worker', settings: { batch_size: 1, max_wait_time_ms: 1000, max_retries: 3 } })
+      await api(`/accounts/${account.id}/queues/${encodeURIComponent(queue.queue_id)}/consumers${consumer ? `/${encodeURIComponent(consumer.consumer_id)}` : ''}`, token, { method: consumer ? 'PUT' : 'POST', body: consumerBody })
+      emit('success', 'Queue Consumer 已配置')
       let url = '', urlMessage = ''
       try {
         const state = await api(`/accounts/${account.id}/workers/scripts/${name}/subdomain`, token, { method: 'POST', body: JSON.stringify({ enabled: true }) })
