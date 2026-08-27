@@ -82,7 +82,7 @@ async function deploy(request: Request, env: Env) {
       const queues = await api(`/accounts/${account.id}/queues?per_page=100`, token)
       if (forceRecreate) {
         emit('info', '正在删除同名 D1、KV、Queue...')
-        await Promise.all((queues || []).filter((x: any) => x.queue_name === queueName).map((x: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(x.queue_name)}`, token, { method: 'DELETE' })))
+        await Promise.all((queues || []).filter((x: any) => x.queue_name === queueName).map((x: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(x.queue_id)}`, token, { method: 'DELETE' })))
         await Promise.all((kvs || []).filter((x: any) => x.title === kvTitle).map((x: any) => api(`/accounts/${account.id}/storage/kv/namespaces/${encodeURIComponent(x.id)}`, token, { method: 'DELETE' })))
         await Promise.all((dbs || []).filter((x: any) => x.name === dbName).map((x: any) => api(`/accounts/${account.id}/d1/database/${encodeURIComponent(x.uuid)}`, token, { method: 'DELETE' })))
         emit('success', '同名资源已删除，正在重新创建...')
