@@ -76,7 +76,7 @@ async function deploy(request: Request, env: Env) {
 
 
       const dbs = await api(`/accounts/${account.id}/d1/database?per_page=100`, token), db = dbs.find((x: any) => x.name === `${name}-db`) || await api(`/accounts/${account.id}/d1/database`, token, { method: 'POST', body: JSON.stringify({ name: `${name}-db` }) })
-      const kvs = await api(`/accounts/${account.id}/storage/kv/namespaces?per_page=100`, token), kv = kvs.find((x: any) => x.title === `${name}-config-cache`) || await api(`/accounts/${account.id}/storage/kv/namespaces`, token, { method: 'POST', body: JSON.stringify({ title: `${name}-config-cache` }) })
+      const kvs = await api(`/accounts/${account.id}/storage/kv/namespaces?per_page=100`, token), kv = kvs.find((x: any) => x.title === `${name}-KV`) || await api(`/accounts/${account.id}/storage/kv/namespaces`, token, { method: 'POST', body: JSON.stringify({ title: `${name}-KV` }) })
       const queues = await api(`/accounts/${account.id}/queues`, token); if (!queues.find((x: any) => x.queue_name === `${name}-jobs`)) await api(`/accounts/${account.id}/queues`, token, { method: 'POST', body: JSON.stringify({ queue_name: `${name}-jobs` }) })
       emit('success', 'D1、KV、Queue 已准备')
       const entries = Object.entries(assets as Record<string, string>), m: Record<string, { hash: string; size: number }> = {}
@@ -93,7 +93,7 @@ async function deploy(request: Request, env: Env) {
         const uploaded = await api(`/accounts/${account.id}/workers/assets/upload?base64=true`, assetsJwt, { method: 'POST', body })
         assetsJwt = uploaded?.jwt || assetsJwt
       }
-      const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'CONFIG_CACHE', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
+      const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'KV', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
       const upload = new FormData(); upload.append('metadata', JSON.stringify(metadata)); upload.append('worker.js', new Blob([worker], { type: 'application/javascript+module' }), 'worker.js'); await api(`/accounts/${account.id}/workers/scripts/${name}`, token, { method: 'PUT', body: upload })
       let url = '', urlMessage = ''
       try {
