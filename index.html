@@ -69,6 +69,11 @@
             <input id="name" value="wangwang" maxlength="28" placeholder="项目名称前缀 (默认: wangwang)" />
           </div>
 
+          <label class="danger-option" for="force-recreate">
+            <input id="force-recreate" type="checkbox" />
+            <span>强制重新创建资源（删除同名 D1、KV、Queue）</span>
+          </label>
+
           <button id="provision" type="button" class="btn primary">一键部署</button>
         </div>
       </form>
@@ -81,6 +86,5 @@
     <script type="module" src="./app.js"></script>
   </body>
 </html>
-
 
 

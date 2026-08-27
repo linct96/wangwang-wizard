@@ -17,7 +17,7 @@
 - 使用 `workers.dev` 地址完成健康检查
 - 流式显示部署阶段、错误和最终地址
 
-第一版暂不包含：Pages、自定义域名自动绑定、Cloudflare Access 自动创建、已有实例更新/删除、多实例管理和本地源码上传。
+第一版暂不包含：Pages、自定义域名自动绑定、Cloudflare Access 自动创建、多实例管理和本地源码上传。
 
 ## 部署包
 
@@ -36,7 +36,7 @@ wangwang-deploy-vX.Y.Z.tar.gz.sha256
 validate -> artifact -> d1 -> kv -> queue -> migration -> worker -> secret -> healthcheck -> complete
 ```
 
-同名资源自动复用；migration 记录已执行项并保持幂等；失败时不自动删除资源，允许用户安全重试。已有 Secret 默认保留，避免订阅链接意外失效。
+默认复用同名资源；勾选“强制重新创建资源”时删除同名 D1、KV、Queue 后重新创建，已有数据和队列消息不可恢复。migration 记录已执行项并保持幂等；失败时不自动删除资源，允许用户安全重试。已有 Secret 默认保留，避免订阅链接意外失效。
 
 ## Token 安全
 
@@ -59,4 +59,3 @@ Token 只在当前请求期间使用，不写入 KV、D1、URL、日志或分析
 4. 接入 migration、bindings、vars 和 secret。
 5. 改造前端参数、流式日志和结果展示。
 6. 使用专用 Cloudflare 账户完成真实部署、重复部署和失败重试测试。
-

@@ -10,6 +10,7 @@ const resourcePanel = $('resource-panel')
 const accountNameInput = $('account-name')
 const nameInput = $('name')
 const provisionBtn = $('provision')
+const forceRecreateInput = $('force-recreate')
 const outputEl = $('output')
 
 let selectedAccountId = ''
@@ -101,10 +102,10 @@ provisionBtn.addEventListener('click', async () => {
   if (!accountId) return showError('未获取到有效的账户信息')
 
   setBusy(provisionBtn, true, '正在部署...')
-  log(`\n● 开始检查并部署 [${name}] 所需资源...`)
+  log(`\n● ${forceRecreateInput.checked ? '强制重建并部署' : '检查并部署'} [${name}] 所需资源...`)
 
   try {
-    const response = await fetch('/api/deploy', { method: 'POST', body: (() => { const form = new FormData(); form.set('token', tokenInput.value.trim()); form.set('workerName', name); return form })() })
+    const response = await fetch('/api/deploy', { method: 'POST', body: (() => { const form = new FormData(); form.set('token', tokenInput.value.trim()); form.set('workerName', name); form.set('forceRecreate', forceRecreateInput.checked ? 'true' : 'false'); return form })() })
     if (!response.ok || !response.body) throw new Error(`部署接口返回 HTTP ${response.status}`)
     const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = ''
     while (true) {
@@ -194,5 +195,4 @@ window.addEventListener('DOMContentLoaded', () => {
     accountsBtn.click()
   }
 })
-
 

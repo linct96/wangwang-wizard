@@ -187,6 +187,23 @@ h1 {
   padding-top: 4px;
 }
 
+.danger-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--danger-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.danger-option input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  accent-color: var(--danger-text);
+}
+
 .input-group {
   display: flex;
   align-items: center;
@@ -321,4 +338,3 @@ input[readonly] {
 .hidden {
   display: none !important;
 }
-

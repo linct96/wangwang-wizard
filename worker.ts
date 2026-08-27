@@ -19,6 +19,7 @@ async function untarGzip(data: ArrayBuffer) {
 async function deploy(request: Request, env: Env) {
   const form = await request.formData(), token = String(form.get('token') || '').trim()
   const name = (String(form.get('workerName') || 'wangwang').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'wangwang')
+  const forceRecreate = String(form.get('forceRecreate') || '').toLowerCase() === 'true'
   if (!token) throw new Error('请输入 Cloudflare API Token')
   return new Response(new ReadableStream({ async start(c) {
     const emit = (type: string, message: string) => c.enqueue(new TextEncoder().encode(JSON.stringify({ type, message }) + '\n'))
@@ -75,9 +76,20 @@ async function deploy(request: Request, env: Env) {
       if (!manifest || !worker) throw new Error('Wangwang Release 缺少部署文件')
 
 
-      const dbs = await api(`/accounts/${account.id}/d1/database?per_page=100`, token), db = dbs.find((x: any) => x.name === `${name}-db`) || await api(`/accounts/${account.id}/d1/database`, token, { method: 'POST', body: JSON.stringify({ name: `${name}-db` }) })
-      const kvs = await api(`/accounts/${account.id}/storage/kv/namespaces?per_page=100`, token), kv = kvs.find((x: any) => x.title === `${name}-KV`) || await api(`/accounts/${account.id}/storage/kv/namespaces`, token, { method: 'POST', body: JSON.stringify({ title: `${name}-KV` }) })
-      const queues = await api(`/accounts/${account.id}/queues`, token); if (!queues.find((x: any) => x.queue_name === `${name}-jobs`)) await api(`/accounts/${account.id}/queues`, token, { method: 'POST', body: JSON.stringify({ queue_name: `${name}-jobs` }) })
+      const dbName = `${name}-db`, kvTitle = `${name}-KV`, queueName = `${name}-jobs`
+      const dbs = await api(`/accounts/${account.id}/d1/database?per_page=100`, token)
+      const kvs = await api(`/accounts/${account.id}/storage/kv/namespaces?per_page=100`, token)
+      const queues = await api(`/accounts/${account.id}/queues?per_page=100`, token)
+      if (forceRecreate) {
+        emit('info', '正在删除同名 D1、KV、Queue...')
+        await Promise.all((queues || []).filter((x: any) => x.queue_name === queueName).map((x: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(x.queue_name)}`, token, { method: 'DELETE' })))
+        await Promise.all((kvs || []).filter((x: any) => x.title === kvTitle).map((x: any) => api(`/accounts/${account.id}/storage/kv/namespaces/${encodeURIComponent(x.id)}`, token, { method: 'DELETE' })))
+        await Promise.all((dbs || []).filter((x: any) => x.name === dbName).map((x: any) => api(`/accounts/${account.id}/d1/database/${encodeURIComponent(x.uuid)}`, token, { method: 'DELETE' })))
+        emit('success', '同名资源已删除，正在重新创建...')
+      }
+      const db = (!forceRecreate && dbs.find((x: any) => x.name === dbName)) || await api(`/accounts/${account.id}/d1/database`, token, { method: 'POST', body: JSON.stringify({ name: dbName }) })
+      const kv = (!forceRecreate && kvs.find((x: any) => x.title === kvTitle)) || await api(`/accounts/${account.id}/storage/kv/namespaces`, token, { method: 'POST', body: JSON.stringify({ title: kvTitle }) })
+      if (forceRecreate || !(queues || []).find((x: any) => x.queue_name === queueName)) await api(`/accounts/${account.id}/queues`, token, { method: 'POST', body: JSON.stringify({ queue_name: queueName }) })
       emit('success', 'D1、KV、Queue 已准备')
       const entries = Object.entries(assets as Record<string, string>), m: Record<string, { hash: string; size: number }> = {}
       for (const [p, b64] of entries) { const bytes = Uint8Array.from(atob(b64), x => x.charCodeAt(0)); const hash = [...new Uint8Array(await crypto.subtle.digest('MD5', bytes))].map(x => x.toString(16).padStart(2, '0')).join(''); m[p] = { hash, size: bytes.length } }
