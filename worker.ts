@@ -11,6 +11,20 @@ async function api(path: string, token: string, init: RequestInit = {}) {
   if (!r.ok || !d.success) throw new Error(d.errors?.[0]?.message || `Cloudflare API ${r.status}`)
   return d.result
 }
+async function applyMigrations(accountId: string, databaseId: string, files: Record<string, Uint8Array>, manifest: any, token: string) {
+  const dir = `${String(manifest.migrationsDir || 'migrations').replace(/\/+$/, '')}/`
+  const migrations = Object.keys(files).filter((name) => name.startsWith(dir) && name.endsWith('.sql')).sort()
+  if (!migrations.length) throw new Error('部署包缺少 D1 migration 文件')
+  const query = (sql: string) => api(`/accounts/${accountId}/d1/database/${databaseId}/query`, token, { method: 'POST', body: JSON.stringify({ sql }) })
+  await query('CREATE TABLE IF NOT EXISTS "d1_migrations" (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);')
+  const applied = new Set(((await query('SELECT name FROM "d1_migrations" ORDER BY id'))?.[0]?.results || []).map((row: any) => row.name))
+  for (const path of migrations) {
+    const name = path.slice(dir.length)
+    if (applied.has(name)) continue
+    const sql = new TextDecoder().decode(files[path]).replace(/;\s*$/, '')
+    await query(`${sql}; INSERT INTO "d1_migrations" (name) VALUES ('${name.replace(/'/g, "''")}');`)
+  }
+}
 async function untarGzip(data: ArrayBuffer) {
   const bytes = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()), files: Record<string, Uint8Array> = {}
   for (let p = 0; p + 512 <= bytes.length;) { const size = parseInt(new TextDecoder().decode(bytes.slice(p + 124, p + 136)).replace(/\0/g, '').trim() || '0', 8); const name = new TextDecoder().decode(bytes.slice(p, p + 100)).replace(/\0.*$/, ''); if (!name) break; files[name.replace(/^wangwang-v[^/]+\//, '')] = bytes.slice(p + 512, p + 512 + size); p += 512 + Math.ceil(size / 512) * 512 }
@@ -91,6 +105,8 @@ async function deploy(request: Request, env: Env) {
       const db = (!forceRecreate && dbs.find((x: any) => x.name === dbName)) || await api(`/accounts/${account.id}/d1/database`, token, { method: 'POST', body: JSON.stringify({ name: dbName }) })
       const kv = (!forceRecreate && kvs.find((x: any) => x.title === kvTitle)) || await api(`/accounts/${account.id}/storage/kv/namespaces`, token, { method: 'POST', body: JSON.stringify({ title: kvTitle }) })
       if (forceRecreate || !(queues || []).find((x: any) => x.queue_name === queueName)) await api(`/accounts/${account.id}/queues`, token, { method: 'POST', body: JSON.stringify({ queue_name: queueName }) })
+      emit('info', '正在应用 D1 数据库迁移...')
+      await applyMigrations(account.id, db.uuid, files, manifest, token)
       emit('success', 'D1、KV、Queue 已准备')
       const entries = Object.entries(assets as Record<string, string>), m: Record<string, { hash: string; size: number }> = {}
       for (const [p, b64] of entries) { const bytes = Uint8Array.from(atob(b64), x => x.charCodeAt(0)); const hash = [...new Uint8Array(await crypto.subtle.digest('MD5', bytes))].map(x => x.toString(16).padStart(2, '0')).join(''); m[p] = { hash, size: bytes.length } }
