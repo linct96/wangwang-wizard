@@ -204,6 +204,22 @@ h1 {
   accent-color: var(--text-sub);
 }
 
+.remember-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-sub);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.remember-option input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--text-sub);
+}
+
 .input-group {
   display: flex;
   align-items: center;

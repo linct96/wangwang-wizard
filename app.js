@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id)
 
 const tokenInput = $('token')
 const tokenGroup = $('token-group')
+const rememberTokenInput = $('remember-token')
 const toggleTokenBtn = $('toggle-token')
 const eyeIcon = $('eye-icon')
 const eyeOffIcon = $('eye-off-icon')
@@ -75,6 +76,8 @@ provisionBtn.dataset.label = '一键部署'
 
 accountsBtn.addEventListener('click', async () => {
   const token = tokenInput.value.trim()
+  if (rememberTokenInput.checked && token) localStorage.setItem('wangwang-token', token)
+  else localStorage.removeItem('wangwang-token')
   if (!token) return showError('请先输入有效的 Cloudflare API Token')
 
   setBusy(accountsBtn, true, '正在验证...')
@@ -191,6 +194,12 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   if (!tokenFromUrl) {
     tokenFromUrl = new URLSearchParams(window.location.search).get('token')
+  }
+
+  const savedToken = localStorage.getItem('wangwang-token') || ''
+  if (!tokenFromUrl && savedToken) {
+    tokenInput.value = savedToken
+    rememberTokenInput.checked = true
   }
 
   if (tokenFromUrl) {
