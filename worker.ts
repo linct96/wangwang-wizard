@@ -122,7 +122,7 @@ async function deploy(request: Request, env: Env) {
         const uploaded = await api(`/accounts/${account.id}/workers/assets/upload?base64=true`, assetsJwt, { method: 'POST', body })
         assetsJwt = uploaded?.jwt || assetsJwt
       }
-      const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt, config: { not_found_handling: 'single-page-application' }, run_worker_first: ['/*'] }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'KV', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
+      const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt, config: { not_found_handling: 'single-page-application' }, run_worker_first: true }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'KV', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
       const upload = new FormData(); upload.append('metadata', JSON.stringify(metadata)); upload.append('worker.js', new Blob([worker], { type: 'application/javascript+module' }), 'worker.js'); await api(`/accounts/${account.id}/workers/scripts/${name}`, token, { method: 'PUT', body: upload })
       let url = '', urlMessage = ''
       try {
