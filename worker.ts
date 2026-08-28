@@ -146,7 +146,8 @@ async function deploy(request: Request, env: Env) {
       const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt, config: { not_found_handling: 'single-page-application' }, run_worker_first: true, serve_directly: false }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'KV', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
       const upload = new FormData(); upload.append('metadata', JSON.stringify(metadata)); upload.append('worker.js', new Blob([worker], { type: 'application/javascript+module' }), 'worker.js'); await api(`/accounts/${account.id}/workers/scripts/${name}`, token, { method: 'PUT', body: upload })
       const consumers = await api(`/accounts/${account.id}/queues/${encodeURIComponent(queue.queue_id)}/consumers`, token)
-      const consumer = consumers.find((x: any) => x.type === 'worker' && x.script_name === name)
+      const consumer = consumers[0]
+      if (consumer?.type === 'http_pull') throw new Error(`Queue 已配置 HTTP Pull Consumer，无法绑定 Worker；请先删除该 Consumer (${consumer.consumer_id})`)
       const consumerBody = JSON.stringify({ script_name: name, type: 'worker', settings: { batch_size: 1, max_wait_time_ms: 1000, max_retries: 3 } })
       await api(`/accounts/${account.id}/queues/${encodeURIComponent(queue.queue_id)}/consumers${consumer ? `/${encodeURIComponent(consumer.consumer_id)}` : ''}`, token, { method: consumer ? 'PUT' : 'POST', body: consumerBody })
       emit('success', 'Queue Consumer 已配置')
