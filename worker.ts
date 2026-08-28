@@ -117,6 +117,11 @@ async function deploy(request: Request, env: Env) {
       const queues = await listAll(`/accounts/${account.id}/queues?per_page=100`, token)
       if (forceRecreate) {
         emit('info', '正在删除同名 Worker、D1、KV、Queue...')
+        // Worker 作为 Queue Consumer 时必须先解除绑定，才能删除 Worker。
+        await Promise.all((queues || []).map(async (q: any) => {
+          const consumers = await api(`/accounts/${account.id}/queues/${encodeURIComponent(q.queue_id)}/consumers`, token)
+          await Promise.all((consumers || []).filter((c: any) => c.type === 'worker' && c.script_name === name).map((c: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(q.queue_id)}/consumers/${encodeURIComponent(c.consumer_id)}`, token, { method: 'DELETE' })))
+        }))
         await api(`/accounts/${account.id}/workers/scripts/${encodeURIComponent(name)}`, token, { method: 'DELETE' })
         await Promise.all((queues || []).filter((x: any) => x.queue_name === queueName).map((x: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(x.queue_id)}`, token, { method: 'DELETE' })))
         await Promise.all((kvs || []).filter((x: any) => x.title === kvTitle).map((x: any) => api(`/accounts/${account.id}/storage/kv/namespaces/${encodeURIComponent(x.id)}`, token, { method: 'DELETE' })))
