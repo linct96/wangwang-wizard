@@ -39,6 +39,19 @@ function assetContentType(path: string) {
   if (path.endsWith('.ico')) return 'image/x-icon'
   return 'application/octet-stream'
 }
+function randomSecret() {
+  return [...crypto.getRandomValues(new Uint8Array(32))].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+async function ensureSubscriptionSecret(accountId: string, scriptName: string, token: string) {
+  const path = `/accounts/${accountId}/workers/scripts/${encodeURIComponent(scriptName)}/secrets`
+  const secrets = await api(path, token)
+  if ((secrets || []).some((secret: any) => secret.name === 'SUBSCRIPTION_TOKEN_SECRET')) return false
+  await api(path, token, {
+    method: 'PUT',
+    body: JSON.stringify({ name: 'SUBSCRIPTION_TOKEN_SECRET', text: randomSecret(), type: 'secret_text' }),
+  })
+  return true
+}
 async function applyMigrations(accountId: string, databaseId: string, files: Record<string, Uint8Array>, manifest: any, token: string) {
   const dir = `${String(manifest.migrationsDir || 'migrations').replace(/\/+$/, '')}/`
   const migrations = Object.keys(files).filter((name) => name.startsWith(dir) && name.endsWith('.sql')).sort()
@@ -170,6 +183,9 @@ async function deploy(request: Request, env: Env) {
       }
       const metadata = { main_module: 'worker.js', compatibility_date: '2026-08-26', assets: { jwt: assetsJwt, config: { not_found_handling: 'single-page-application' }, run_worker_first: true, serve_directly: false }, bindings: [{ type: 'd1', name: 'DB', id: db.uuid }, { type: 'kv_namespace', name: 'KV', namespace_id: kv.id }, { type: 'queue', name: 'JOBS', queue_name: `${name}-jobs` }, { type: 'assets', name: 'ASSETS' }] }
       const upload = new FormData(); upload.append('metadata', JSON.stringify(metadata)); upload.append('worker.js', new Blob([worker], { type: 'application/javascript+module' }), 'worker.js'); await api(`/accounts/${account.id}/workers/scripts/${name}`, token, { method: 'PUT', body: upload })
+      emit('info', '正在准备订阅密钥...')
+      const secretCreated = await ensureSubscriptionSecret(account.id, name, token)
+      emit('success', secretCreated ? '订阅密钥已生成' : '已保留现有订阅密钥')
       const consumers = await api(`/accounts/${account.id}/queues/${encodeURIComponent(queue.queue_id)}/consumers`, token)
       const consumer = consumers[0]
       if (consumer?.type === 'http_pull') throw new Error(`Queue 已配置 HTTP Pull Consumer，无法绑定 Worker；请先删除该 Consumer (${consumer.consumer_id})`)
