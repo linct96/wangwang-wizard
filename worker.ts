@@ -120,7 +120,16 @@ async function deploy(request: Request, env: Env) {
         // Worker 作为 Queue Consumer 时必须先解除绑定，才能删除 Worker。
         await Promise.all((queues || []).map(async (q: any) => {
           const consumers = await api(`/accounts/${account.id}/queues/${encodeURIComponent(q.queue_id)}/consumers`, token)
-          await Promise.all((consumers || []).filter((c: any) => c.type === 'worker' && c.script_name === name).map((c: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(q.queue_id)}/consumers/${encodeURIComponent(c.consumer_id)}`, token, { method: 'DELETE' })))
+          const matches = (consumers || []).filter((c: any) => c.type === 'worker' && c.script_name === name)
+          await Promise.all(matches.map((c: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(q.queue_id)}/consumers/${encodeURIComponent(c.consumer_id)}`, token, { method: 'DELETE' })))
+          let cleared = !matches.length
+          for (let i = 0; i < 10 && !cleared; i++) {
+            const remaining = await api(`/accounts/${account.id}/queues/${encodeURIComponent(q.queue_id)}/consumers`, token)
+            cleared = !(remaining || []).some((c: any) => c.type === 'worker' && c.script_name === name)
+            if (cleared) break
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
+          if (!cleared) throw new Error(`Queue ${q.queue_name || q.queue_id} 的 Worker Consumer 解绑未完成，请稍后重试`)
         }))
         await api(`/accounts/${account.id}/workers/scripts/${encodeURIComponent(name)}`, token, { method: 'DELETE' })
         await Promise.all((queues || []).filter((x: any) => x.queue_name === queueName).map((x: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(x.queue_id)}`, token, { method: 'DELETE' })))
