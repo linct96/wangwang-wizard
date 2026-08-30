@@ -8,8 +8,19 @@ async function api(path: string, token: string, init: RequestInit = {}, envelope
   else if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const r = await fetch(`${CF}${path}`, { ...init, headers })
   const d = await r.json() as any
-  if (!r.ok || !d.success) throw new Error(d.errors?.[0]?.message || `Cloudflare API ${r.status}`)
+  if (!r.ok || !d.success) {
+    const error = new Error(d.errors?.[0]?.message || `Cloudflare API ${r.status}`)
+    ;(error as any).status = r.status
+    throw error
+  }
   return envelope ? d : d.result
+}
+async function deleteIfExists(path: string, token: string) {
+  try {
+    await api(path, token, { method: 'DELETE' })
+  } catch (e) {
+    if ((e as any)?.status !== 404) throw e
+  }
 }
 async function listAll(path: string, token: string) {
   const result: any[] = []
@@ -120,21 +131,21 @@ async function deploy(request: Request, env: Env) {
         // Worker 作为 Queue Consumer 时必须先解除绑定，才能删除 Worker。
         await Promise.all((queues || []).map(async (q: any) => {
           const consumers = await api(`/accounts/${account.id}/queues/${encodeURIComponent(q.queue_id)}/consumers`, token)
-          const matches = (consumers || []).filter((c: any) => c.type === 'worker' && c.script_name === name)
+          const matches = (consumers || []).filter((c: any) => c.type === 'worker' && (c.script_name || c.script) === name)
           await Promise.all(matches.map((c: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(q.queue_id)}/consumers/${encodeURIComponent(c.consumer_id)}`, token, { method: 'DELETE' })))
           let cleared = !matches.length
           for (let i = 0; i < 10 && !cleared; i++) {
             const remaining = await api(`/accounts/${account.id}/queues/${encodeURIComponent(q.queue_id)}/consumers`, token)
-            cleared = !(remaining || []).some((c: any) => c.type === 'worker' && c.script_name === name)
+            cleared = !(remaining || []).some((c: any) => c.type === 'worker' && (c.script_name || c.script) === name)
             if (cleared) break
             await new Promise((resolve) => setTimeout(resolve, 1000))
           }
           if (!cleared) throw new Error(`Queue ${q.queue_name || q.queue_id} 的 Worker Consumer 解绑未完成，请稍后重试`)
         }))
-        await api(`/accounts/${account.id}/workers/scripts/${encodeURIComponent(name)}`, token, { method: 'DELETE' })
-        await Promise.all((queues || []).filter((x: any) => x.queue_name === queueName).map((x: any) => api(`/accounts/${account.id}/queues/${encodeURIComponent(x.queue_id)}`, token, { method: 'DELETE' })))
-        await Promise.all((kvs || []).filter((x: any) => x.title === kvTitle).map((x: any) => api(`/accounts/${account.id}/storage/kv/namespaces/${encodeURIComponent(x.id)}`, token, { method: 'DELETE' })))
-        await Promise.all((dbs || []).filter((x: any) => x.name === dbName).map((x: any) => api(`/accounts/${account.id}/d1/database/${encodeURIComponent(x.uuid)}`, token, { method: 'DELETE' })))
+        await deleteIfExists(`/accounts/${account.id}/workers/scripts/${encodeURIComponent(name)}`, token)
+        await Promise.all((queues || []).filter((x: any) => x.queue_name === queueName).map((x: any) => deleteIfExists(`/accounts/${account.id}/queues/${encodeURIComponent(x.queue_id)}`, token)))
+        await Promise.all((kvs || []).filter((x: any) => x.title === kvTitle).map((x: any) => deleteIfExists(`/accounts/${account.id}/storage/kv/namespaces/${encodeURIComponent(x.id)}`, token)))
+        await Promise.all((dbs || []).filter((x: any) => x.name === dbName).map((x: any) => deleteIfExists(`/accounts/${account.id}/d1/database/${encodeURIComponent(x.uuid)}`, token)))
         emit('success', '同名资源已删除，正在重新创建...')
       }
       const db = (!forceRecreate && dbs.find((x: any) => x.name === dbName)) || await api(`/accounts/${account.id}/d1/database`, token, { method: 'POST', body: JSON.stringify({ name: dbName }) })
@@ -162,6 +173,8 @@ async function deploy(request: Request, env: Env) {
       const consumers = await api(`/accounts/${account.id}/queues/${encodeURIComponent(queue.queue_id)}/consumers`, token)
       const consumer = consumers[0]
       if (consumer?.type === 'http_pull') throw new Error(`Queue 已配置 HTTP Pull Consumer，无法绑定 Worker；请先删除该 Consumer (${consumer.consumer_id})`)
+      const consumerScript = consumer?.script_name || consumer?.script
+      if (consumer && consumerScript !== name) throw new Error(`Queue 已绑定其他 Worker (${consumerScript || '未知'})，无法覆盖 Consumer (${consumer.consumer_id})`)
       const consumerBody = JSON.stringify({ script_name: name, type: 'worker', settings: { batch_size: 1, max_wait_time_ms: 1000, max_retries: 3 } })
       await api(`/accounts/${account.id}/queues/${encodeURIComponent(queue.queue_id)}/consumers${consumer ? `/${encodeURIComponent(consumer.consumer_id)}` : ''}`, token, { method: consumer ? 'PUT' : 'POST', body: consumerBody })
       emit('success', 'Queue Consumer 已配置')
