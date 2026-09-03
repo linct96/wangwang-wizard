@@ -1,6 +1,6 @@
 const CF = 'https://api.cloudflare.com/client/v4'
 const RELEASE = 'https://api.github.com/repos/linct96/wangwang/releases/latest'
-type Env = { ASSETS: Fetcher; WANGWANG_RELEASE_API?: string }
+type Env = { ASSETS: Fetcher; WANGWANG_RELEASE_API?: string; GITHUB_TOKEN?: string }
 async function api(path: string, token: string, init: RequestInit = {}, envelope = false) {
   const headers = new Headers(init.headers)
   headers.set('Authorization', `Bearer ${token}`)
@@ -86,16 +86,16 @@ async function deploy(request: Request, env: Env) {
       let downloadUrl = ''
       let tag = ''
 
-      // 1. 优先通过 GitHub Releases 302 重定向解析最新 tag（完全不消耗 GitHub API 速率配额，避免 429）
+      // 1. 优先通过 GitHub Releases 302 重定向解析最新 tag（完全不消耗 GitHub API 速率配额，避免 429/403）
       try {
         const redirectRes = await fetch(`https://github.com/linct96/wangwang/releases/latest?_=${Date.now()}`, {
           method: 'GET',
-          redirect: 'manual',
+          redirect: 'follow',
           headers: { 'User-Agent': 'wangwang-wizard', 'Cache-Control': 'no-cache' },
         })
-        const loc = redirectRes.headers.get('location') || ''
-        if (loc) {
-          tag = loc.split('/').pop()?.trim() || ''
+        const targetUrl = redirectRes.url || redirectRes.headers.get('location') || ''
+        if (targetUrl && targetUrl.includes('/releases/tag/')) {
+          tag = targetUrl.split('/releases/tag/').pop()?.split(/[?#]/)[0]?.trim() || ''
           if (tag) {
             downloadUrl = `https://github.com/linct96/wangwang/releases/download/${tag}/wangwang-deploy-${tag}.tar.gz`
           }
@@ -104,11 +104,37 @@ async function deploy(request: Request, env: Env) {
 
       // 2. 备用：若重定向未获取到，则通过 API 获取
       if (!downloadUrl) {
-        const releaseRes = await fetch(env.WANGWANG_RELEASE_API || RELEASE, {
-          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'wangwang-wizard', 'Cache-Control': 'no-cache' },
-        })
+        const headers: Record<string, string> = {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'wangwang-wizard',
+          'Cache-Control': 'no-cache',
+        }
+        if (env.GITHUB_TOKEN) {
+          headers['Authorization'] = `Bearer ${env.GITHUB_TOKEN}`
+        }
+
+        const releaseRes = await fetch(env.WANGWANG_RELEASE_API || RELEASE, { headers })
         if (!releaseRes.ok) {
-          throw new Error(`无法获取 GitHub 发布包 (HTTP ${releaseRes.status})，请确认 linct96/wangwang 仓库已发布 Release`)
+          const isRateLimited =
+            releaseRes.headers.get('x-ratelimit-remaining') === '0' ||
+            releaseRes.status === 429 ||
+            (releaseRes.status === 403 && (releaseRes.headers.get('x-ratelimit-remaining') === '0' || (await releaseRes.clone().text().catch(() => '')).toLowerCase().includes('rate limit')))
+
+          if (isRateLimited) {
+            const resetTime = releaseRes.headers.get('x-ratelimit-reset')
+            const resetMsg = resetTime ? ` (配额重置时间: ${new Date(Number(resetTime) * 1000).toLocaleTimeString()})` : ''
+            throw new Error(`GitHub API 速率超限 (HTTP ${releaseRes.status} Rate Limit)${resetMsg}，请稍后重试或配置 GITHUB_TOKEN`)
+          }
+
+          if (releaseRes.status === 404) {
+            throw new Error('未找到 Release 发布包 (HTTP 404)，请确认 linct96/wangwang 为公开仓库且已发布 Release')
+          }
+
+          if (releaseRes.status === 403) {
+            throw new Error('GitHub 访问被拒绝 (HTTP 403 Forbidden)，请检查访问权限或配置 GITHUB_TOKEN')
+          }
+
+          throw new Error(`无法获取 GitHub 发布包 (HTTP ${releaseRes.status})`)
         }
         const release = await releaseRes.json() as any
         tag = release.tag_name || 'latest'
@@ -126,7 +152,11 @@ async function deploy(request: Request, env: Env) {
       })
       if (!archiveRes.ok) throw new Error(`下载部署包失败 (HTTP ${archiveRes.status})`)
       const archive = await archiveRes.arrayBuffer()
-      const expected = await (await fetch(`${downloadUrl}.sha256?_=${Date.now()}`, { headers: { 'User-Agent': 'wangwang-wizard', 'Cache-Control': 'no-cache' } })).text()
+      const shaRes = await fetch(`${downloadUrl}.sha256?_=${Date.now()}`, {
+        headers: { 'User-Agent': 'wangwang-wizard', 'Cache-Control': 'no-cache' },
+      })
+      if (!shaRes.ok) throw new Error(`下载部署包校验文件失败 (HTTP ${shaRes.status})`)
+      const expected = await shaRes.text()
       const actual = [...new Uint8Array(await crypto.subtle.digest('SHA-256', archive))].map((x) => x.toString(16).padStart(2, '0')).join('')
       if (expected.trim().split(/\s+/)[0].toLowerCase() !== actual) throw new Error('部署包 SHA-256 校验失败')
       const files = await untarGzip(archive)
