@@ -86,21 +86,29 @@ async function deploy(request: Request, env: Env) {
       let downloadUrl = ''
       let tag = ''
 
-      // 1. 优先通过 GitHub Releases 302 重定向解析最新 tag（完全不消耗 GitHub API 速率配额，避免 429/403）
+      // 1. 直接读取 GitHub Releases 重定向，不消耗 REST API 配额。
       try {
         const redirectRes = await fetch(`https://github.com/linct96/wangwang/releases/latest?_=${Date.now()}`, {
           method: 'GET',
-          redirect: 'follow',
+          redirect: 'manual',
           headers: { 'User-Agent': 'wangwang-wizard', 'Cache-Control': 'no-cache' },
         })
-        const targetUrl = redirectRes.url || redirectRes.headers.get('location') || ''
-        if (targetUrl && targetUrl.includes('/releases/tag/')) {
-          tag = targetUrl.split('/releases/tag/').pop()?.split(/[?#]/)[0]?.trim() || ''
-          if (tag) {
-            downloadUrl = `https://github.com/linct96/wangwang/releases/download/${tag}/wangwang-deploy-${tag}.tar.gz`
-          }
+        if (redirectRes.status < 300 || redirectRes.status >= 400) {
+          throw new Error(`预期 Release 重定向，实际 HTTP ${redirectRes.status}`)
         }
-      } catch (_) {}
+        const location = redirectRes.headers.get('location')
+        if (!location) throw new Error('Release 重定向缺少 Location')
+        const target = new URL(location, 'https://github.com')
+        const prefix = '/linct96/wangwang/releases/tag/'
+        if (target.origin !== 'https://github.com' || !target.pathname.startsWith(prefix)) {
+          throw new Error(`Release 重定向地址不符合预期: ${location}`)
+        }
+        tag = target.pathname.slice(prefix.length)
+        if (!tag) throw new Error('Release 重定向缺少版本号')
+        downloadUrl = `https://github.com/linct96/wangwang/releases/download/${tag}/wangwang-deploy-${tag}.tar.gz`
+      } catch (e) {
+        emit('info', `Release 重定向解析失败：${e instanceof Error ? e.message : String(e)}；正在回退到 GitHub API（可能受速率限制）...`)
+      }
 
       // 2. 备用：若重定向未获取到，则通过 API 获取
       if (!downloadUrl) {
