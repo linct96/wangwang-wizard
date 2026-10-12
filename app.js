@@ -149,29 +149,64 @@ provisionBtn.addEventListener('click', async () => {
 
 // Theme Management
 const toggleThemeBtn = $('toggle-theme')
+const themeAuto = $('theme-auto')
 const themeSun = $('theme-sun')
 const themeMoon = $('theme-moon')
 
-function updateThemeUI(theme) {
-  document.documentElement.setAttribute('data-theme', theme)
-  localStorage.setItem('theme', theme)
-  const isLight = theme === 'light'
-  if (themeSun) themeSun.classList.toggle('hidden', isLight)
-  if (themeMoon) themeMoon.classList.toggle('hidden', !isLight)
+const THEME_CYCLE = {
+  auto: 'light',
+  light: 'dark',
+  dark: 'auto',
+}
+
+const THEME_TITLES = {
+  auto: '主题模式：自动（跟随系统）',
+  light: '主题模式：浅色（白天）',
+  dark: '主题模式：深色（黑夜）',
+}
+
+function applyTheme(mode) {
+  const currentMode = mode in THEME_CYCLE ? mode : 'auto'
+  localStorage.setItem('theme', currentMode)
+
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const effectiveTheme = currentMode === 'auto' ? (systemDark ? 'dark' : 'light') : currentMode
+  document.documentElement.setAttribute('data-theme', effectiveTheme)
+
+  if (themeAuto) themeAuto.classList.toggle('hidden', currentMode !== 'auto')
+  if (themeSun) themeSun.classList.toggle('hidden', currentMode !== 'light')
+  if (themeMoon) themeMoon.classList.toggle('hidden', currentMode !== 'dark')
+
+  if (toggleThemeBtn) {
+    toggleThemeBtn.title = THEME_TITLES[currentMode] || '切换主题'
+  }
 }
 
 if (toggleThemeBtn) {
   toggleThemeBtn.addEventListener('click', () => {
-    const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark'
-    const nextTheme = currentTheme === 'light' ? 'dark' : 'light'
-    updateThemeUI(nextTheme)
+    const currentMode = localStorage.getItem('theme') || 'auto'
+    const nextMode = THEME_CYCLE[currentMode] || 'auto'
+    applyTheme(nextMode)
   })
 }
 
+const themeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+const onSystemThemeChange = () => {
+  const currentMode = localStorage.getItem('theme') || 'auto'
+  if (currentMode === 'auto') {
+    applyTheme('auto')
+  }
+}
+if (themeMediaQuery.addEventListener) {
+  themeMediaQuery.addEventListener('change', onSystemThemeChange)
+} else if (themeMediaQuery.addListener) {
+  themeMediaQuery.addListener(onSystemThemeChange)
+}
+
+applyTheme(localStorage.getItem('theme') || 'auto')
+
 // Initialize Token Link & URL Token
 window.addEventListener('DOMContentLoaded', () => {
-  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark'
-  updateThemeUI(currentTheme)
 
   const permissions = [
     { key: 'd1', type: 'edit' },
